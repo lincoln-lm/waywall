@@ -186,6 +186,8 @@ mirror_release(struct scene_object *object) {
 
 static void
 mirror_render(struct scene_object *object) {
+    // naive time tracking
+    static int32_t cur_time = 0;
     // The OpenGL context must be current.
 
     struct scene_mirror *mirror = scene_mirror_from_object(object);
@@ -203,6 +205,7 @@ mirror_render(struct scene_object *object) {
     glUniform2f(scene->shaders.data[mirror->shader_index].shader_u_dst_size, scene->ui->width,
                 scene->ui->height);
     glUniform2f(scene->shaders.data[mirror->shader_index].shader_u_src_size, width, height);
+    glUniform1i(scene->shaders.data[mirror->shader_index].shader_u_cur_time, cur_time++);
 
     gl_using_buffer(GL_ARRAY_BUFFER, mirror->vbo) {
         gl_using_texture(GL_TEXTURE_2D, capture_texture) {
@@ -684,6 +687,7 @@ shader_create(struct server_gl *gl, struct scene_shader *data, char *name, const
 
     data->shader_u_src_size = glGetUniformLocation(data->shader->program, "u_src_size");
     data->shader_u_dst_size = glGetUniformLocation(data->shader->program, "u_dst_size");
+    data->shader_u_cur_time = glGetUniformLocation(data->shader->program, "u_cur_time");
 
     return true;
 }
