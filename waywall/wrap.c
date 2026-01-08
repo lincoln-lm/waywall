@@ -84,7 +84,14 @@ floating_set_visible(struct wrap *wrap, bool visible) {
     wrap->floating.visible = visible;
 
     struct floating_view *fview;
+
     wl_list_for_each (fview, &wrap->floating.views, link) {
+        server_view_set_visible(fview->view, true);
+        server_view_commit(fview->view);
+    }
+
+    if (!wl_list_empty(&wrap->floating.views)) {
+        fview = wl_container_of((&wrap->floating.views)->prev, fview, link);
         server_view_set_visible(fview->view, visible);
         server_view_commit(fview->view);
     }
