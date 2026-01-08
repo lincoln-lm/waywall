@@ -467,9 +467,9 @@ on_button(void *data, uint32_t button, bool pressed) {
 
     // If Minecraft has locked the pointer, just send it the button event. Do not check if it should
     // be sent to a floating window.
-    if (wrap->input.pointer_locked) {
-        return false;
-    }
+    // if (wrap->input.pointer_locked) {
+    return false;
+    // }
 
     // Whether or not a window grab can be initiated by this event.
     // The user must have started pressing the left mouse button while holding shift.
