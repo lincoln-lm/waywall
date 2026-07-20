@@ -11,6 +11,7 @@ waywall_src = files(
   'server/fake_input.c',
   'server/gl.c',
   'server/server.c',
+  'server/surface.c',
   'server/ui.c',
   'server/wl_compositor.c',
   'server/wl_data_device_manager.c',
@@ -31,6 +32,7 @@ waywall_src = files(
   'util/log.c',
   'util/png.c',
   'util/prelude.c',
+  'util/sched.c',
   'util/str.c',
   'util/syscall.c',
   'util/sysinfo.c',
@@ -54,4 +56,5 @@ executable('waywall',
 
   dependencies: waywall_deps,
   include_directories: includes,
+  install: true,
 )

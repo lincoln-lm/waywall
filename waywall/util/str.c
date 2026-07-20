@@ -70,6 +70,18 @@ strbuf_clear(strbuf *buf) {
     buf->len = 0;
 }
 
+strbuf
+strbuf_clone(strbuf buf) {
+    char *data = zalloc(buf.cap, 1);
+    memcpy(data, buf.data, buf.len);
+
+    return (strbuf){
+        .cap = buf.cap,
+        .len = buf.len,
+        .data = data,
+    };
+}
+
 char *
 strbuf_clone_cstr(strbuf buf) {
     char *cstr = zalloc(buf.len + 1, 1);
@@ -126,6 +138,9 @@ str_eq(str a, str b) {
     if (a.len != b.len) {
         return false;
     }
+    if (a.len == b.len && a.len == 0) {
+        return true;
+    }
 
     return (memcmp(a.data, b.data, a.len) == 0);
 }
@@ -136,9 +151,23 @@ str_from(const char *cstr) {
     return (str){len, cstr};
 }
 
+struct str_halves
+str_halves(str s, char needle) {
+    ssize_t split = str_index(s, needle, 0);
+
+    if (split == -1) {
+        return (struct str_halves){};
+    }
+
+    return (struct str_halves){
+        .a = str_slice(s, 0, split),
+        .b = str_slice(s, split + 1, s.len),
+    };
+}
+
 ssize_t
 str_index(str s, char needle, ssize_t start) {
-    char *ptr = memchr(s.data + start, needle, s.len - start);
+    const char *ptr = memchr(s.data + start, needle, s.len - start);
 
     return (ptr ? ptr - s.data : -1);
 }

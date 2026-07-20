@@ -8,11 +8,11 @@
 #include "util/debug.h"
 #include "util/log.h"
 #include "util/prelude.h"
+#include "util/sched.h"
 #include "util/syscall.h"
 #include "util/sysinfo.h"
 #include "wrap.h"
 #include <errno.h>
-#include <sched.h>
 #include <signal.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -73,15 +73,11 @@ handle_signal(int signal, void *data) {
 
 static int
 cmd_wrap(const char *profile, bool allow_mc_x11, char **argv) {
-    char logname[32] = {};
-    ssize_t n = snprintf(logname, STATIC_ARRLEN(logname), "wrap-%jd", (intmax_t)getpid());
-    ww_assert(n < (ssize_t)STATIC_ARRLEN(logname));
-
     if (!util_debug_init()) {
         return 1;
     }
 
-    int log_fd = util_log_create_file(logname, true);
+    int log_fd = util_log_create_file(LOG_NAME_WRAP, true);
     if (log_fd == -1) {
         return 1;
     }
@@ -231,21 +227,6 @@ print_help(const char *argv0) {
     }
 }
 
-static void
-set_realtime() {
-    int priority = sched_get_priority_min(SCHED_RR);
-    if (priority == -1) {
-        ww_log_errno(LOG_ERROR, "failed to get minimum priority for SCHED_RR");
-        return;
-    }
-
-    const struct sched_param param = {.sched_priority = priority};
-    if (sched_setscheduler(getpid(), SCHED_RR, &param) == -1) {
-        ww_log_errno(LOG_WARN, "failed to set scheduler priority");
-        return;
-    }
-}
-
 int
 main(int argc, char **argv) {
     util_log_init();
@@ -308,7 +289,7 @@ main(int argc, char **argv) {
             return 1;
         }
 
-        set_realtime();
+        util_sched_realtime();
         return cmd_wrap(profile, allow_mc_x11, subcommand);
     } else {
         print_help(argv[0]);

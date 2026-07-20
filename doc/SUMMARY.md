@@ -17,6 +17,7 @@
     - [Input](01_options_input.md)
     - [Theme](01_options_theme.md)
     - [Shaders](01_options_shaders.md)
+    - [Window](01_options_window.md)
     - [Experimental](01_options_experimental.md)
 
 # API Reference
@@ -33,6 +34,7 @@
     - [press_key](02_waywall_press_key.md)
     - [profile](02_waywall_profile.md)
     - [set_keymap](02_waywall_set_keymap.md)
+    - [set_remaps](02_waywall_set_remaps.md)
     - [set_resolution](02_waywall_set_resolution.md)
     - [set_sensitivity](02_waywall_set_sensitivity.md)
     - [show_floating](02_waywall_show_floating.md)

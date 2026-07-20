@@ -141,7 +141,7 @@ local function load_config(autogenerate)
 
         error("expected table from user configuration, got " .. type(result))
     else
-        if result:find("not found:") then
+        if result:find("module 'init' not found:") then
             if not autogenerate then
                 error(result)
             end
@@ -184,7 +184,11 @@ if user_config.autogen then
 
     local waywall = require("waywall")
     waywall.listen("load", function()
-        autogen_text = waywall.text(autogen_notice, { x = 10, y = 10, size = 1 })
+        local autogen_opts = {}
+        autogen_opts.x = 10
+        autogen_opts.y = 10
+        autogen_opts.size = 1
+        autogen_text = waywall.text(autogen_notice, autogen_opts)
     end)
 end
 

@@ -13,6 +13,7 @@
 #include <luajit-2.1/lua.h>
 #include <luajit-2.1/luajit.h>
 #include <luajit-2.1/lualib.h>
+#include <stdbit.h>
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
@@ -26,6 +27,11 @@ static const struct config defaults = {
             .debug = false,
             .jit = false,
             .tearing = false,
+        },
+    .window =
+        {
+            .fullscreen_width = 0,
+            .fullscreen_height = 0,
         },
     .input =
         {
@@ -50,8 +56,11 @@ static const struct config defaults = {
             .cursor_theme = "",
             .cursor_icon = "",
             .cursor_size = 0,
-            .ninb_anchor = ANCHOR_NONE,
-            .ninb_opacity = 1.0,
+            .ninb =
+                {
+                    .anchor = ANCHOR_NONE,
+                    .opacity = 1.0,
+                },
         },
     .shaders = {},
 };
@@ -79,6 +88,17 @@ static const struct {
     {"super", KB_MOD_MOD4},    {"win", KB_MOD_MOD4},     {"mod4", KB_MOD_MOD4},
     {"mod5", KB_MOD_MOD5},
 };
+
+static int
+get_type(struct config *cfg, const char *key) {
+    lua_pushstring(cfg->vm->L, key); // stack: n+1
+    lua_rawget(cfg->vm->L, -2);      // stack: n+1
+
+    int type = lua_type(cfg->vm->L, -1);
+    lua_pop(cfg->vm->L, 1); // stack: n
+
+    return type;
+}
 
 static int
 get_bool(struct config *cfg, const char *key, bool *dst, const char *full_name, bool required) {
@@ -311,6 +331,29 @@ parse_bind(const char *bind, struct config_action *action) {
 }
 
 static int
+parse_ninb_anchor(const char *input, enum floating_anchor *out) {
+    static const char *anchor_names[] = {
+        [ANCHOR_TOPLEFT] = "topleft",
+        [ANCHOR_TOP] = "top",
+        [ANCHOR_TOPRIGHT] = "topright",
+        [ANCHOR_LEFT] = "left",
+        [ANCHOR_RIGHT] = "right",
+        [ANCHOR_BOTTOMLEFT] = "bottomleft",
+        [ANCHOR_BOTTOMRIGHT] = "bottomright",
+    };
+
+    for (size_t i = 0; i < STATIC_ARRLEN(anchor_names); i++) {
+        if (strcasecmp(anchor_names[i], input) == 0) {
+            *out = i;
+            return 0;
+        }
+    }
+
+    ww_log(LOG_ERROR, "invalid value '%s' for 'theme.ninb_anchor'", input);
+    return 1;
+}
+
+static int
 parse_remap_half(const char *input, uint32_t *out_data, enum config_remap_type *out_type) {
     for (size_t i = 0; i < STATIC_ARRLEN(util_keycodes); i++) {
         if (strcasecmp(util_keycodes[i].name, input) == 0) {
@@ -380,7 +423,7 @@ compare_action(const void *a_void, const void *b_void) {
     const struct config_action *a = a_void;
     const struct config_action *b = b_void;
 
-    return __builtin_popcount(b->modifiers) - __builtin_popcount(a->modifiers);
+    return stdc_count_ones(b->modifiers) - stdc_count_ones(a->modifiers);
 }
 
 static int
@@ -531,6 +574,36 @@ process_config_input_remaps(struct config *cfg) {
 }
 
 static int
+process_config_window(struct config *cfg) {
+    // stack state
+    // 2:   config.window
+    // 1:   config
+    ww_assert(lua_gettop(cfg->vm->L) == 2);
+
+    if (get_int(cfg, "fullscreen_width", &cfg->window.fullscreen_width, "window.fullscreen_width",
+                false) != 0) {
+        return 1;
+    }
+    if (cfg->window.fullscreen_width < 0) {
+        ww_log(LOG_ERROR,
+               "'window.fullscreen_width' must be a non-negative integer (0 = native resolution)");
+        return 1;
+    }
+
+    if (get_int(cfg, "fullscreen_height", &cfg->window.fullscreen_height,
+                "window.fullscreen_height", false) != 0) {
+        return 1;
+    }
+    if (cfg->window.fullscreen_height < 0) {
+        ww_log(LOG_ERROR,
+               "'window.fullscreen_height' must be a non-negative integer (0 = native resolution)");
+        return 1;
+    }
+
+    return 0;
+}
+
+static int
 process_config_input(struct config *cfg) {
     // stack state
     // 2:   config.input
@@ -586,6 +659,35 @@ process_config_input(struct config *cfg) {
 }
 
 static int
+process_config_theme_ninb_anchor(struct config *cfg) {
+    // stack state
+    // 3: config.theme.ninb_anchor
+    // 2: config.theme
+    // 1: config
+    ww_assert(lua_gettop(cfg->vm->L) == 3);
+
+    char *position = nullptr;
+    if (get_string(cfg, "position", &position, "theme.ninb_anchor.position", true) != 0) {
+        return 1;
+    }
+    int ret = parse_ninb_anchor(position, &cfg->theme.ninb.anchor);
+    free(position);
+    if (ret != 0) {
+        return 1;
+    }
+
+    if (get_int(cfg, "x", &cfg->theme.ninb.offset_x, "theme.ninb_anchor.x", false) != 0) {
+        return 1;
+    }
+
+    if (get_int(cfg, "y", &cfg->theme.ninb.offset_y, "theme.ninb_anchor.y", false) != 0) {
+        return 1;
+    }
+
+    return 0;
+}
+
+static int
 process_config_theme(struct config *cfg) {
     // stack state
     // 2:   config.theme
@@ -628,37 +730,35 @@ process_config_theme(struct config *cfg) {
         return 1;
     }
 
-    char *ninb_anchor = nullptr;
-    if (get_string(cfg, "ninb_anchor", &ninb_anchor, "theme.ninb_anchor", false) != 0) {
-        return 1;
-    }
-    if (ninb_anchor) {
-        static const char *anchor_names[] = {
-            [ANCHOR_TOPLEFT] = "topleft",
-            [ANCHOR_TOP] = "top",
-            [ANCHOR_TOPRIGHT] = "topright",
-            [ANCHOR_LEFT] = "left",
-            [ANCHOR_RIGHT] = "right",
-            [ANCHOR_BOTTOMLEFT] = "bottomleft",
-            [ANCHOR_BOTTOMRIGHT] = "bottomright",
-        };
+    int ninb_anchor_type = get_type(cfg, "ninb_anchor");
+    switch (ninb_anchor_type) {
+    case LUA_TSTRING:
+        char *ninb_anchor = nullptr;
+        ww_assert(get_string(cfg, "ninb_anchor", &ninb_anchor, "theme.ninb_anchor", true) == 0);
 
-        for (size_t i = 0; i < STATIC_ARRLEN(anchor_names); i++) {
-            if (strcasecmp(anchor_names[i], ninb_anchor) == 0) {
-                cfg->theme.ninb_anchor = i;
-                break;
-            }
-        }
-
-        if (cfg->theme.ninb_anchor == ANCHOR_NONE) {
-            ww_log(LOG_ERROR, "invalid value '%s' for 'theme.ninb_anchor'", ninb_anchor);
-            free(ninb_anchor);
+        int ret = parse_ninb_anchor(ninb_anchor, &cfg->theme.ninb.anchor);
+        free(ninb_anchor);
+        if (ret != 0) {
             return 1;
         }
-    }
-    free(ninb_anchor);
 
-    if (get_double(cfg, "ninb_opacity", &cfg->theme.ninb_opacity, "theme.ninb_opacity", false) !=
+        break;
+    case LUA_TTABLE:
+        if (get_table(cfg, "ninb_anchor", process_config_theme_ninb_anchor, "theme.ninb_anchor",
+                      true) != 0) {
+            return 1;
+        }
+        break;
+    case LUA_TNIL:
+        break;
+    default:
+        ww_log(LOG_ERROR,
+               "expected 'theme.ninb_anchor' to be of type 'string' or 'table', was '%s'",
+               lua_typename(cfg->vm->L, ninb_anchor_type));
+        return 1;
+    }
+
+    if (get_double(cfg, "ninb_opacity", &cfg->theme.ninb.opacity, "theme.ninb_opacity", false) !=
         0) {
         return 1;
     }
@@ -730,6 +830,10 @@ process_config(struct config *cfg) {
     }
 
     if (get_table(cfg, "experimental", process_config_experimental, "experimental", false) != 0) {
+        return 1;
+    }
+
+    if (get_table(cfg, "window", process_config_window, "window", false) != 0) {
         return 1;
     }
 

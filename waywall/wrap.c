@@ -10,8 +10,8 @@
 #include "server/fake_input.h"
 #include "server/gl.h"
 #include "server/server.h"
+#include "server/surface.h"
 #include "server/ui.h"
-#include "server/wl_compositor.h"
 #include "server/wl_seat.h"
 #include "subproc.h"
 #include "timer.h"
@@ -30,7 +30,7 @@
 #include <xkbcommon/xkbcommon.h>
 
 #define IS_ANCHORED(wrap, view) (wrap->floating.anchored == view)
-#define SHOULD_ANCHOR(wrap) (wrap->cfg->theme.ninb_anchor != ANCHOR_NONE)
+#define SHOULD_ANCHOR(wrap) (wrap->cfg->theme.ninb.anchor != ANCHOR_NONE)
 
 static void on_anchored_resize(struct wl_listener *listener, void *data);
 
@@ -130,12 +130,15 @@ floating_update_anchored(struct wrap *wrap) {
     int32_t win_width, win_height;
     server_buffer_get_size(buffer, &win_width, &win_height);
 
-    uint32_t center_x = (wrap->width / 2) - (win_width / 2);
-    uint32_t center_y = (wrap->height / 2) - (win_height / 2);
+    int32_t ui_width = wrap->server->ui->width;
+    int32_t ui_height = wrap->server->ui->height;
+
+    uint32_t center_x = (ui_width / 2) - (win_width / 2);
+    uint32_t center_y = (ui_height / 2) - (win_height / 2);
 
     uint32_t x, y;
 
-    switch (wrap->cfg->theme.ninb_anchor) {
+    switch (wrap->cfg->theme.ninb.anchor) {
     case ANCHOR_TOPLEFT:
         x = 0;
         y = 0;
@@ -145,7 +148,7 @@ floating_update_anchored(struct wrap *wrap) {
         y = 0;
         break;
     case ANCHOR_TOPRIGHT:
-        x = wrap->width - win_width;
+        x = ui_width - win_width;
         y = 0;
         break;
     case ANCHOR_LEFT:
@@ -153,22 +156,24 @@ floating_update_anchored(struct wrap *wrap) {
         y = center_y;
         break;
     case ANCHOR_RIGHT:
-        x = wrap->width - win_width;
+        x = ui_width - win_width;
         y = center_y;
         break;
     case ANCHOR_BOTTOMLEFT:
         x = 0;
-        y = wrap->height - win_height;
+        y = ui_height - win_height;
         break;
     case ANCHOR_BOTTOMRIGHT:
-        x = wrap->width - win_width;
-        y = wrap->height - win_height;
+        x = ui_width - win_width;
+        y = ui_height - win_height;
         break;
     default:
         // Silence release mode compiler warnings.
         return;
     }
 
+    x += wrap->cfg->theme.ninb.offset_x;
+    y += wrap->cfg->theme.ninb.offset_y;
     fview->x = x;
     fview->y = y;
 
@@ -308,8 +313,8 @@ static void
 on_resize(struct wl_listener *listener, void *data) {
     struct wrap *wrap = wl_container_of(listener, wrap, on_resize);
 
-    int32_t new_width = wrap->server->ui->width;
-    int32_t new_height = wrap->server->ui->height;
+    int32_t new_width = wrap->server->ui->render_width;
+    int32_t new_height = wrap->server->ui->render_height;
 
     if (new_width == wrap->width && new_height == wrap->height) {
         return;
@@ -331,7 +336,8 @@ on_resize(struct wl_listener *listener, void *data) {
         floating_update_anchored(wrap);
     }
 
-    server_set_pointer_pos(wrap->server, wrap->width / 2.0, wrap->height / 2.0);
+    server_set_pointer_pos(wrap->server, wrap->server->ui->width / 2.0,
+                           wrap->server->ui->height / 2.0);
 }
 
 static void
@@ -405,6 +411,7 @@ on_view_create(struct wl_listener *listener, void *data) {
     ww_assert(wrap->width > 0 && wrap->height > 0);
     ww_assert(wrap->view);
 
+    server_view_set_size(wrap->view, wrap->width, wrap->height);
     server_view_set_centered(wrap->view, true);
     server_view_set_visible(wrap->view, true);
     server_view_commit(wrap->view);
@@ -663,7 +670,7 @@ wrap_set_config(struct wrap *wrap, struct config *cfg) {
     config_vm_set_wrap(cfg->vm, wrap);
 
     wrap->cfg = cfg;
-    if (wrap->cfg->theme.ninb_anchor == ANCHOR_NONE) {
+    if (wrap->cfg->theme.ninb.anchor == ANCHOR_NONE) {
         // If anchoring has been disabled, ensure there is no anchored view.
         if (wrap->floating.anchored) {
             unset_anchored(wrap);

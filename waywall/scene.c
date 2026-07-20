@@ -15,9 +15,9 @@ static constexpr int PACKED_ATLAS_WIDTH = 2048;
 static constexpr int PACKED_ATLAS_HEIGHT = 16;
 static constexpr int ATLAS_WIDTH = 128;
 static constexpr int ATLAS_HEIGHT = 256;
-static constexpr int CHAR_WIDTH = 8;
-static constexpr int CHAR_HEIGHT = 16;
-static constexpr int CHARS_PER_ROW = (ATLAS_WIDTH / CHAR_WIDTH);
+static constexpr int FONT_CHAR_WIDTH = 8;
+static constexpr int FONT_CHAR_HEIGHT = 16;
+static constexpr int CHARS_PER_ROW = (ATLAS_WIDTH / FONT_CHAR_WIDTH);
 
 static_assert(PACKED_ATLAS_SIZE == STATIC_ARRLEN(UTIL_TERMINUS_FONT));
 static_assert(PACKED_ATLAS_WIDTH * PACKED_ATLAS_HEIGHT == ATLAS_WIDTH * ATLAS_HEIGHT);
@@ -141,8 +141,8 @@ image_render(struct scene_object *object) {
     struct scene *scene = image->parent;
 
     server_gl_shader_use(scene->shaders.data[image->shader_index].shader);
-    glUniform2f(scene->shaders.data[image->shader_index].shader_u_dst_size, scene->ui->width,
-                scene->ui->height);
+    glUniform2f(scene->shaders.data[image->shader_index].shader_u_dst_size, scene->ui->render_width,
+                scene->ui->render_height);
     glUniform2f(scene->shaders.data[image->shader_index].shader_u_src_size, image->width,
                 image->height);
 
@@ -202,8 +202,8 @@ mirror_render(struct scene_object *object) {
     server_gl_get_capture_size(scene->gl, &width, &height);
 
     server_gl_shader_use(scene->shaders.data[mirror->shader_index].shader);
-    glUniform2f(scene->shaders.data[mirror->shader_index].shader_u_dst_size, scene->ui->width,
-                scene->ui->height);
+    glUniform2f(scene->shaders.data[mirror->shader_index].shader_u_dst_size,
+                scene->ui->render_width, scene->ui->render_height);
     glUniform2f(scene->shaders.data[mirror->shader_index].shader_u_src_size, width, height);
     glUniform1i(scene->shaders.data[mirror->shader_index].shader_u_cur_time, cur_time++);
 
@@ -230,32 +230,32 @@ text_build(GLuint vbo, struct scene *scene, const char *data,
 
     for (const char *c = data; *c != '\0'; c++) {
         if (*c == '\n') {
-            y += CHAR_HEIGHT * options->size_multiplier;
+            y += FONT_CHAR_HEIGHT * options->size_multiplier;
             x = options->x;
             continue;
         } else if (*c == ' ') {
-            x += CHAR_WIDTH * options->size_multiplier;
+            x += FONT_CHAR_WIDTH * options->size_multiplier;
             continue;
         }
 
         struct box src = {
-            .x = (*c % CHARS_PER_ROW) * CHAR_WIDTH,
-            .y = (*c / CHARS_PER_ROW) * CHAR_HEIGHT,
-            .width = CHAR_WIDTH,
-            .height = CHAR_HEIGHT,
+            .x = (*c % CHARS_PER_ROW) * FONT_CHAR_WIDTH,
+            .y = (*c / CHARS_PER_ROW) * FONT_CHAR_HEIGHT,
+            .width = FONT_CHAR_WIDTH,
+            .height = FONT_CHAR_HEIGHT,
         };
 
         struct box dst = {
             .x = x,
             .y = y,
-            .width = CHAR_WIDTH * options->size_multiplier,
-            .height = CHAR_HEIGHT * options->size_multiplier,
+            .width = FONT_CHAR_WIDTH * options->size_multiplier,
+            .height = FONT_CHAR_HEIGHT * options->size_multiplier,
         };
 
         rect_build(ptr, &src, &dst, (float[4]){1.0, 1.0, 1.0, 1.0}, options->rgba);
         ptr += 6;
 
-        x += CHAR_WIDTH * options->size_multiplier;
+        x += FONT_CHAR_WIDTH * options->size_multiplier;
     }
 
     gl_using_buffer(GL_ARRAY_BUFFER, vbo) {
@@ -288,8 +288,8 @@ text_render(struct scene_object *object) {
     struct scene *scene = text->parent;
 
     server_gl_shader_use(scene->shaders.data[text->shader_index].shader);
-    glUniform2f(scene->shaders.data[text->shader_index].shader_u_dst_size, scene->ui->width,
-                scene->ui->height);
+    glUniform2f(scene->shaders.data[text->shader_index].shader_u_dst_size, scene->ui->render_width,
+                scene->ui->render_height);
     glUniform2f(scene->shaders.data[text->shader_index].shader_u_src_size, ATLAS_WIDTH,
                 ATLAS_HEIGHT);
 
@@ -411,8 +411,8 @@ draw_stencil(struct scene *scene) {
     // draw_frame. This stuff really should be synchronized with the surface content. Might be worth
     // always doing compositing if scene objects are visible but I'm not very happy with that
     // solution.
-    bool stencil_equal = scene->ui->width == scene->prev_frame.width &&
-                         scene->ui->height == scene->prev_frame.height &&
+    bool stencil_equal = scene->ui->render_width == scene->prev_frame.width &&
+                         scene->ui->render_height == scene->prev_frame.height &&
                          width == scene->prev_frame.tex_width &&
                          height == scene->prev_frame.tex_height;
     if (stencil_equal) {
@@ -422,8 +422,8 @@ draw_stencil(struct scene *scene) {
         }
     }
 
-    scene->prev_frame.width = scene->ui->width;
-    scene->prev_frame.height = scene->ui->height;
+    scene->prev_frame.width = scene->ui->render_width;
+    scene->prev_frame.height = scene->ui->render_height;
     scene->prev_frame.tex_width = width;
     scene->prev_frame.tex_height = height;
     scene->prev_frame.equal_frames = 0;
@@ -439,8 +439,8 @@ draw_stencil(struct scene *scene) {
     glStencilOp(GL_REPLACE, GL_REPLACE, GL_REPLACE);
 
     struct box dst = {
-        .x = (scene->ui->width / 2) - (width / 2),
-        .y = (scene->ui->height / 2) - (height / 2),
+        .x = (scene->ui->render_width / 2) - (width / 2),
+        .y = (scene->ui->render_height / 2) - (height / 2),
         .width = width,
         .height = height,
     };
@@ -464,7 +464,8 @@ static void
 draw_debug_text(struct scene *scene) {
     // The OpenGL context must be current.
     server_gl_shader_use(scene->shaders.data[0].shader);
-    glUniform2f(scene->shaders.data[0].shader_u_dst_size, scene->ui->width, scene->ui->height);
+    glUniform2f(scene->shaders.data[0].shader_u_dst_size, scene->ui->render_width,
+                scene->ui->render_height);
     glUniform2f(scene->shaders.data[0].shader_u_src_size, ATLAS_WIDTH, ATLAS_HEIGHT);
 
     const char *str = util_debug_str();
@@ -496,9 +497,9 @@ draw_frame(struct scene *scene) {
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
     glEnable(GL_BLEND);
-    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ONE);
 
-    glViewport(0, 0, scene->ui->width, scene->ui->height);
+    glViewport(0, 0, scene->ui->render_width, scene->ui->render_height);
 
     if (!should_draw_frame(scene)) {
         // TODO: Scene rendering could potentially be synchronized with the game subsurface (or
@@ -741,7 +742,7 @@ scene_create(struct config *cfg, struct server_gl *gl, struct server_ui *ui) {
 
                 if (set) {
                     size_t x = px % ATLAS_WIDTH;
-                    size_t y = py + (px / ATLAS_WIDTH) * CHAR_HEIGHT;
+                    size_t y = py + (px / ATLAS_WIDTH) * FONT_CHAR_HEIGHT;
                     size_t pos = (y * ATLAS_WIDTH + x) * 4;
 
                     atlas[pos] = 0xFF;

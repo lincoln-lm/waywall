@@ -4,12 +4,13 @@
 #include "server/backend.h"
 #include "server/buffer.h"
 #include "server/server.h"
+#include "server/surface.h"
 #include "server/ui.h"
-#include "server/wl_compositor.h"
 #include "server/wp_linux_dmabuf.h"
 #include "util/alloc.h"
 #include "util/log.h"
 #include "util/prelude.h"
+#include "viewporter-client-protocol.h"
 #include <EGL/egl.h>
 #include <EGL/eglext.h>
 #include <spng.h>
@@ -232,8 +233,25 @@ static void
 on_ui_resize(struct wl_listener *listener, void *data) {
     struct server_gl *gl = wl_container_of(listener, gl, on_ui_resize);
 
-    wl_egl_window_resize(gl->surface.window, gl->server->ui->width, gl->server->ui->height, 0, 0);
+    wl_egl_window_resize(gl->surface.window, gl->server->ui->render_width,
+                         gl->server->ui->render_height, 0, 0);
+
+    wp_viewport_set_destination(gl->surface.viewport, gl->server->ui->width,
+                                gl->server->ui->height);
 }
+
+static void
+on_frame_callback_done(void *data, struct wl_callback *callback, uint32_t callback_data) {
+    struct server_gl *gl = data;
+
+    gl->surface.swaps_since_frame_cb = 0;
+    gl->surface.frame_callback = nullptr;
+    wl_callback_destroy(callback);
+}
+
+static const struct wl_callback_listener frame_callback_listener = {
+    .done = on_frame_callback_done,
+};
 
 static bool
 egl_getproc(void *out, const char *name) {
@@ -590,6 +608,10 @@ server_gl_create(struct server *server) {
     check_alloc(gl->surface.subsurface);
     wl_subsurface_set_desync(gl->surface.subsurface);
 
+    gl->surface.viewport =
+        wp_viewporter_get_viewport(server->backend->viewporter, gl->surface.remote);
+    check_alloc(gl->surface.viewport);
+
     // Use arbitrary sizes here since the main UI window has not yet been sized.
     gl->surface.window = wl_egl_window_create(gl->surface.remote, 1, 1);
     check_alloc(gl->surface.window);
@@ -623,6 +645,7 @@ server_gl_create(struct server *server) {
 
 fail_egl_surface:
     wl_egl_window_destroy(gl->surface.window);
+    wp_viewport_destroy(gl->surface.viewport);
     wl_subsurface_destroy(gl->surface.subsurface);
     wl_surface_destroy(gl->surface.remote);
 
@@ -664,8 +687,13 @@ server_gl_destroy(struct server_gl *gl) {
 
     eglDestroySurface(gl->egl.display, gl->surface.egl);
     wl_egl_window_destroy(gl->surface.window);
+    wp_viewport_destroy(gl->surface.viewport);
     wl_subsurface_destroy(gl->surface.subsurface);
     wl_surface_destroy(gl->surface.remote);
+
+    if (gl->surface.frame_callback) {
+        wl_callback_destroy(gl->surface.frame_callback);
+    }
 
     // Destroy EGL resources.
     eglMakeCurrent(gl->egl.display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
@@ -754,6 +782,19 @@ server_gl_set_capture(struct server_gl *gl, struct server_surface *surface) {
 
 void
 server_gl_swap_buffers(struct server_gl *gl) {
+    // HACK: NVIDIA bug workaround. Check git blame for details.
+    if (gl->surface.frame_callback) {
+        gl->surface.swaps_since_frame_cb++;
+    } else {
+        gl->surface.frame_callback = wl_surface_frame(gl->surface.remote);
+        check_alloc(gl->surface.frame_callback);
+
+        wl_callback_add_listener(gl->surface.frame_callback, &frame_callback_listener, gl);
+    }
+    if (gl->surface.swaps_since_frame_cb > 64) {
+        return;
+    }
+
     eglSwapInterval(gl->egl.display, 0);
     eglSwapBuffers(gl->egl.display, gl->surface.egl);
 }
